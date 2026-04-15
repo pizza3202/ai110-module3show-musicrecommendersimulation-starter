@@ -143,7 +143,7 @@ Run from the project root (with your virtual environment activated if you use on
 python -m src.main
 ```
 
-The layout prints **load count**, the **demo profile** (`pop` / `happy` / `0.8` energy), then for each recommendation: **rank**, **title**, **artist**, **final score**, and each **scoring reason** on its own line (from `score_song`). For the default profile, **#1 should be *Sunrise City*** (only row with both genre and mood match at the top tier).
+`src/main.py` prints **four stress-test profiles** (High-Energy Pop, Chill Lofi, Deep Intense Rock, plus an **edge** profile with conflicting vibe: high energy + “moody” under `pop`), then a **fifth block** that repeats the High-Energy Pop profile under a **weight experiment** (energy weight ×2, genre weight ×0.5). Each block shows **rank**, **title**, **artist**, **score**, and **bullet reasons** from `score_song`.
 
 **Course screenshot (optional):** if the rubric requires an image file, capture your terminal and save it as `docs/cli-screenshot.png`, then add this line to your README (or replace the block below):
 
@@ -162,59 +162,47 @@ Profile: genre='pop', mood='happy', energy=0.8
 Top recommendations (highest score first)
 
 #1  Sunrise City
-     Artist:  Neon Echo
-     Score:   5.78
-     Reasons:
+     Score:   5.70
        • genre match (+2.0) [pop]
        • mood match (+1.0) [happy]
        • energy similarity (+1.96) (song 0.82 vs target 0.80)
        • acoustic preference (+0.82) (favor produced)
 
-#2  Gym Hero
-     Artist:  Max Pulse
-     Score:   4.69
-     Reasons:
-       • genre match (+2.0) [pop]
-       • energy similarity (+1.74) (song 0.93 vs target 0.80)
-       • acoustic preference (+0.95) (favor produced)
+---
 
-#3  Pulse Check
-     Artist:  DJ Verse
-     Score:   3.80
-     Reasons:
-       • mood match (+1.0) [happy]
-       • energy similarity (+1.84) (song 0.88 vs target 0.80)
-       • acoustic preference (+0.96) (favor produced)
+## System evaluation (testing Steps 1–3)
 
-#4  Rooftop Lights
-     Artist:  Indigo Parade
-     Score:   3.57
-     Reasons:
-       • mood match (+1.0) [happy]
-       • energy similarity (+1.92) (song 0.76 vs target 0.80)
-       • acoustic preference (+0.65) (favor produced)
+### Step 1 — Stress profiles (see `PROFILE_RUNS` in `src/main.py`)
 
-#5  Quarter Notes
-     Artist:  The Uptown Trio
-     Score:   3.38
-     Reasons:
-       • mood match (+1.0) [happy]
-       • energy similarity (+1.50) (song 0.55 vs target 0.80)
-       • acoustic preference (+0.88) (favor produced)
+| Profile | Intent | Typical #1 (baseline weights) |
+|--------|--------|-------------------------------|
+| High-Energy Pop | `pop` + `happy` + high energy | **Sunrise City** (genre + mood + tight energy) |
+| Chill Lofi | `lofi` + `chill` + low energy + acoustic | **Library Rain** (matches + acoustic tilt) |
+| Deep Intense Rock | `rock` + `intense` + very high energy | **Storm Runner** |
+| Edge: high energy + moody | `pop` + `moody` + very high energy | No row is `pop`+`moody`; **Gym Hero** (`pop`+`intense`) often leads with a **perfect energy** hit plus genre, while mood match stays unused. |
 
-========================================================================
-Expected for this profile: #1 should be a pop + happy match (Sunrise City).
-========================================================================
-```
+For each profile, capture terminal output if your rubric asks for **screenshots** (same `docs/` image tip as above).
+
+### Step 2 — Accuracy, surprises, and “why #1”
+
+For **High-Energy Pop**, **Sunrise City** is a good intuitive top pick: it is one of few rows with **both** genre and mood matches, and its energy sits close to the target, so it collects **+2 +1** plus a large energy-similarity term before acoustic preference.
+
+**Variety note:** if the **same** title stayed at #1 for *every* profile, that would hint at **genre weight too strong** or a **too-small** catalog. Here #1 **changes** with the profile (lofi vs rock vs pop), which is what we want from a content-based stub.
+
+### Step 3 — Small data experiment (implemented)
+
+Change applied in code (not commented-out mood): **`experiment_energy_double_genre_half_weights()`** in `src/recommender.py` — **genre match weight halved**, **energy similarity weight doubled**, mood unchanged. `main` runs the **same** High-Energy Pop prefs with these weights.
+
+**Observation:** **#1** stays **Sunrise City** (still the only full genre+mood double with strong energy), but **#2** moves from **Gym Hero** to **Pulse Check**: with a larger energy multiplier, **exact energy match** (`0.88` vs `0.88`) on a **happy** mood-only row can overtake another **pop** row that had slightly weaker energy similarity under baseline weights. So the change did not “fix” accuracy—it **re-ordered plausible alternatives** in a predictable direction.
 
 ---
 
 ## Experiments You Tried
 
-- **Default CLI profile** (`python -m src.main`): preferences `pop`, `happy`, `energy ≈ 0.8`. The ranked list put **Sunrise City** first (genre and mood match plus energy near the target), then other high-energy tracks with partial matches. That sanity check confirmed the recipe behaves like a strict content filter rather than a random shuffle.
-- **Catalog expansion:** after adding eight more genres/moods to `data/songs.csv`, the same recipe still differentiates clearly between, for example, **intense metal** and **chill lofi** when the dictionary targets rock or lofi explicitly.
-- **Weight intuition:** the code follows the suggested **+2 genre / +1 mood** starting point; lowering genre below mood would let “mood-only” partial matches overtake true genre fits in edge cases.
-- **Optional numeric targets:** adding `valence`, `danceability`, or `tempo_bpm` to `user_prefs` pulls recommendations toward a narrower “vibe corridor” without any new code paths—only new inputs. I did not add a second demo script to keep the repo minimal; the behavior is documented in **How The System Works** and in [`model_card.md`](model_card.md).
+- **Multi-profile CLI** (`python -m src.main`): four dictionaries in `PROFILE_RUNS` plus the weight experiment block; confirms rankings track stated genre/mood/energy instead of a single static demo.
+- **Catalog expansion:** eight extra rows in `data/songs.csv` so rock, metal, edm, etc. appear in stress tests.
+- **Sensitivity:** doubled energy / halved genre weights for one rerun; documented outcome in **System evaluation** above.
+- **Optional numeric targets:** `valence`, `danceability`, or `tempo_bpm` in `user_prefs` still work via `score_song` (see **How The System Works** and [`model_card.md`](model_card.md)).
 
 ---
 
@@ -234,6 +222,6 @@ Recommenders at scale are still, at bottom, **rules or models that map data to a
 
 Bias and unfairness can appear even here: whoever built the playlist-shaped catalog and tag vocabulary is implicitly steering outcomes. A production system would need ongoing evaluation, diversity constraints, and governance; this project is only a starting point for that conversation.
 
-Full structured documentation lives in the [**Model Card**](model_card.md).
+The [**Model Card**](model_card.md) follows the course template (name through improvement ideas) and ends with **§9 Personal reflection**, which answers the four reflection prompts in full. Pair-by-pair evaluation notes for stress-test profiles are in [**reflection.md**](reflection.md).
 
 ---

@@ -1,7 +1,6 @@
 import csv
-from typing import Any, Dict, List, Tuple
-
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 # Content-based weights (genre/mood are categorical; numerics reward closeness to taste).
 # Course starting point: +2 genre, +1 mood, plus energy similarity (see README).
@@ -12,6 +11,45 @@ WEIGHT_ACOUSTIC_PREFERENCE = 1.0
 WEIGHT_VALENCE_SIMILARITY = 0.75  # used only if user_prefs includes "valence"
 WEIGHT_DANCEABILITY_SIMILARITY = 0.75  # used only if user_prefs includes "danceability"
 WEIGHT_TEMPO_SIMILARITY = 0.5  # used only if user_prefs includes "tempo_bpm"
+
+
+@dataclass(frozen=True)
+class ScoreWeights:
+    """Numeric weights for one scoring pass (defaults match module constants)."""
+
+    genre_match: float
+    mood_match: float
+    energy_similarity: float
+    acoustic_preference: float
+    valence_similarity: float
+    danceability_similarity: float
+    tempo_similarity: float
+
+
+def default_score_weights() -> ScoreWeights:
+    """Return the baseline weights used by tests and normal CLI runs."""
+    return ScoreWeights(
+        genre_match=WEIGHT_GENRE_MATCH,
+        mood_match=WEIGHT_MOOD_MATCH,
+        energy_similarity=WEIGHT_ENERGY_SIMILARITY,
+        acoustic_preference=WEIGHT_ACOUSTIC_PREFERENCE,
+        valence_similarity=WEIGHT_VALENCE_SIMILARITY,
+        danceability_similarity=WEIGHT_DANCEABILITY_SIMILARITY,
+        tempo_similarity=WEIGHT_TEMPO_SIMILARITY,
+    )
+
+
+def experiment_energy_double_genre_half_weights() -> ScoreWeights:
+    """Sensitivity test: double energy weight, halve genre weight (mood unchanged)."""
+    return ScoreWeights(
+        genre_match=WEIGHT_GENRE_MATCH * 0.5,
+        mood_match=WEIGHT_MOOD_MATCH,
+        energy_similarity=WEIGHT_ENERGY_SIMILARITY * 2.0,
+        acoustic_preference=WEIGHT_ACOUSTIC_PREFERENCE,
+        valence_similarity=WEIGHT_VALENCE_SIMILARITY,
+        danceability_similarity=WEIGHT_DANCEABILITY_SIMILARITY,
+        tempo_similarity=WEIGHT_TEMPO_SIMILARITY,
+    )
 
 
 def _float(row: Dict[str, Any], key: str) -> float:
@@ -143,7 +181,11 @@ def load_songs(csv_path: str) -> List[Dict]:
     return songs
 
 
-def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
+def score_song(
+    user_prefs: Dict,
+    song: Dict,
+    weights: Optional[ScoreWeights] = None,
+) -> Tuple[float, List[str]]:
     """
     Scores a single song against user preferences.
     Required by recommend_songs() and src/main.py
@@ -153,9 +195,12 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
     - Energy, valence, danceability, tempo: reward closeness to targets, not "higher is better".
     - Acousticness: if likes_acoustic, reward higher acousticness; otherwise reward lower.
 
+    Pass ``weights`` to override defaults (for example a sensitivity experiment in ``main``).
+
     Returns ``(total_score, reasons)`` where each reason string includes the points
     added for that component (for example ``"genre match (+2.0) [pop]"``).
     """
+    w = weights if weights is not None else default_score_weights()
     score = 0.0
     reasons: List[str] = []
 
@@ -165,16 +210,16 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
     sm = str(song.get("mood", "")).strip().lower()
 
     if ug and sg == ug:
-        score += WEIGHT_GENRE_MATCH
-        reasons.append(f"genre match (+{WEIGHT_GENRE_MATCH:.1f}) [{sg}]")
+        score += w.genre_match
+        reasons.append(f"genre match (+{w.genre_match:.1f}) [{sg}]")
     if um and sm == um:
-        score += WEIGHT_MOOD_MATCH
-        reasons.append(f"mood match (+{WEIGHT_MOOD_MATCH:.1f}) [{sm}]")
+        score += w.mood_match
+        reasons.append(f"mood match (+{w.mood_match:.1f}) [{sm}]")
 
     target_energy = float(user_prefs["energy"])
     e = _float(song, "energy")
     energy_sim = _similarity_01(e, target_energy)
-    energy_pts = WEIGHT_ENERGY_SIMILARITY * energy_sim
+    energy_pts = w.energy_similarity * energy_sim
     score += energy_pts
     reasons.append(
         f"energy similarity (+{energy_pts:.2f}) (song {e:.2f} vs target {target_energy:.2f})"
@@ -183,11 +228,11 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
     likes_acoustic = bool(user_prefs.get("likes_acoustic", False))
     ac = _float(song, "acousticness")
     if likes_acoustic:
-        ac_pts = WEIGHT_ACOUSTIC_PREFERENCE * ac
+        ac_pts = w.acoustic_preference * ac
         score += ac_pts
         reasons.append(f"acoustic preference (+{ac_pts:.2f}) (favor acoustic)")
     else:
-        ac_pts = WEIGHT_ACOUSTIC_PREFERENCE * (1.0 - ac)
+        ac_pts = w.acoustic_preference * (1.0 - ac)
         score += ac_pts
         reasons.append(f"acoustic preference (+{ac_pts:.2f}) (favor produced)")
 
@@ -195,7 +240,7 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
         tv = float(user_prefs["valence"])
         v = _float(song, "valence")
         vs = _similarity_01(v, tv)
-        v_pts = WEIGHT_VALENCE_SIMILARITY * vs
+        v_pts = w.valence_similarity * vs
         score += v_pts
         reasons.append(f"valence similarity (+{v_pts:.2f})")
 
@@ -203,7 +248,7 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
         td = float(user_prefs["danceability"])
         d = _float(song, "danceability")
         ds = _similarity_01(d, td)
-        d_pts = WEIGHT_DANCEABILITY_SIMILARITY * ds
+        d_pts = w.danceability_similarity * ds
         score += d_pts
         reasons.append(f"danceability similarity (+{d_pts:.2f})")
 
@@ -211,7 +256,7 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
         tb = float(user_prefs["tempo_bpm"])
         bpm = _float(song, "tempo_bpm")
         ts = _tempo_similarity(bpm, tb)
-        t_pts = WEIGHT_TEMPO_SIMILARITY * ts
+        t_pts = w.tempo_similarity * ts
         score += t_pts
         reasons.append(f"tempo similarity (+{t_pts:.2f})")
 
@@ -219,7 +264,10 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
 
 
 def recommend_songs(
-    user_prefs: Dict, songs: List[Dict], k: int = 5
+    user_prefs: Dict,
+    songs: List[Dict],
+    k: int = 5,
+    weights: Optional[ScoreWeights] = None,
 ) -> List[Tuple[Dict, float, str]]:
     """
     Functional implementation of the recommendation logic.
@@ -233,7 +281,7 @@ def recommend_songs(
     """
     ranked: List[Tuple[Dict, float, str]] = []
     for song in songs:
-        s, reasons = score_song(user_prefs, song)
+        s, reasons = score_song(user_prefs, song, weights=weights)
         explanation = " ".join(reasons)
         ranked.append((song, s, explanation))
     ranked = sorted(ranked, key=lambda x: x[1], reverse=True)

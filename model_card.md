@@ -1,82 +1,69 @@
 # 🎧 Model Card: Music Recommender Simulation
 
-## 1. Model Name
+## 1. Model name
 
-**Catalog Vibe Scorer (Module 3 simulation)**
-
----
-
-## 2. Intended Use
-
-This system suggests a small number of songs from a fixed CSV catalog by comparing each track’s metadata to a short list of user preferences. It is intended for **classroom exploration and documentation practice**: you can read the scoring recipe, run the CLI demo, and run automated tests to see how deterministic rules produce an ordered list.
-
-It assumes the user can state a **favorite genre**, **favorite mood**, a **target energy** level on a zero-to-one style scale, and whether they **lean acoustic or produced** tracks. It is **not** for real listeners, commercial deployment, or personalization at scale.
+**VibeFinder 1.0** (also called **Catalog Vibe Scorer** in the repo—a small, explainable classroom recommender.)
 
 ---
 
-## 3. How the Model Works
+## 2. Goal / task
 
-Think of each song as a row of musical “stats” and tags. The model gives **+2 points** when the genre tag matches the user’s favorite genre, and **+1 point** when the mood tag matches. Genre is therefore a stronger signal than mood, which matches a simple classroom weighting strategy before tuning.
-
-For energy—and, if you supply them, valence, danceability, or tempo—the model does **not** simply reward “more.” It rewards **being close** to the number the user asked for. That mirrors the idea that someone who wants a calm evening does not always want the *lowest* possible energy score; they want energy **near** their comfort zone.
-
-Acousticness is interpreted with one bit of taste: if the user says they like acoustic material, higher acousticness helps the score; if not, more electronic or produced-sounding tracks score better. After every song has a total score, the system **sorts** the catalog from highest score to lowest and returns the first few rows. That final sort is what turns individual numbers into a ranked playlist.
-
-Compared to the starter code, the project now **loads real rows from the CSV**, implements the **full scoring and ranking path**, and returns **short natural-language reasons** so results are explainable rather than mysterious.
+The model **predicts which songs in a fixed list best match a listener sketch** and returns a **ranked short list** (for example the top five). It does not predict whether someone will press play in real life; it only **scores and sorts** rows from a CSV using tags and a few numeric “audio style” fields.
 
 ---
 
-## 4. Data
+## 3. Data used
 
-The catalog is `data/songs.csv` with **18 songs** (10 from the starter plus **8** added rows for broader coverage). Each row includes identifiers and human-readable names plus **genre**, **mood**, **energy** (roughly 0.0–1.0), **tempo in BPM**, **valence**, **danceability**, and **acousticness**.
+The data file is **`data/songs.csv`** with **18 songs**. Each song has **title**, **artist**, **genre**, **mood**, **energy** (about 0–1), **tempo_bpm**, **valence**, **danceability**, and **acousticness**. Genres include pop, lofi, rock, jazz, edm, metal, and others; moods include happy, chill, intense, moody, and more.
 
-Genres now include **pop**, **lofi**, **rock**, **ambient**, **jazz**, **synthwave**, **indie pop**, **metal**, **folk**, **edm**, **hip hop**, **reggae**, and **classical**. Moods include **happy**, **chill**, **intense**, **relaxed**, **moody**, and **focused**. The extra rows are **synthetic teaching examples**, not a real streaming export.
-
-The dataset is **not** a statistically representative sample of global music. It is a teaching mix, so conclusions about “what people like” in general should not be drawn from it. Important taste dimensions such as **language, lyrics, cultural context, era, popularity, and social signals** are missing.
+The set is **tiny and hand-built** for teaching. It is **not** balanced like real streaming data, and it **does not** include lyrics, language, charts, listening history, or social context. Any conclusion about “all music” would overreach.
 
 ---
 
-## 5. Strengths
+## 4. Algorithm summary (plain language)
 
-The recommender is **transparent**: given the same inputs, it always produces the same ordering, and the explanation strings tie back to concrete matches and similarity phrases.
+Each song starts at zero points. If the user’s **genre** word matches the song’s genre tag, the song gets a **larger** bonus than a **mood** match. **Energy** works differently: the song gets more points when its energy number is **close** to the user’s target, not simply when it is “louder.” **Acousticness** adds a small tilt toward either **acoustic** or **produced** tracks, depending on a yes/no switch. Optional targets (like valence or tempo) can add more “closeness” points if the user supplies them.
 
-For users who state preferences in the **same vocabulary as the CSV** (for example “pop” and “happy” with a high energy target), the top results tend to **feel coherent** because the model is doing exactly what a human curator might do at a glance: check genre, mood, and intensity.
-
-The design is also **easy to audit** in a course setting: weights and features can be discussed without reading a large machine-learning stack, which helps when the learning goal is to understand **scoring versus ranking** and the limits of hand-crafted rules.
+After every song has a total score, the program **sorts** from highest to lowest and reads off the top slots. The printed **reason lines** are the same ingredients added up, so you can see why one row beat another without reading code.
 
 ---
 
-## 6. Limitations and Bias
+## 5. Observed behavior / biases
 
-The system only knows what is in the table. **Underrepresented genres or moods** will rarely win, not because listeners dislike them, but because the catalog is small and uneven. **String equality** on genre and mood punishes harmless variation in wording.
+During CLI stress tests, the system behaved like a **strict librarian**: if the spreadsheet does not contain your exact mood word inside your genre, the big mood bonus often **never turns on**, and loud rows with the right genre can float up anyway—**Gym Hero** appeared first for a **“moody pop + very high energy”** profile even though that track is tagged **intense**, not moody, because there is almost no **pop + moody** inventory.
 
-Because the approach is **content-only**, it cannot discover “hidden gems” from listening patterns, and it cannot correct for bad or subjective tags. If two songs share a label but feel very different in real life, the model cannot tell.
-
-If this logic were dropped into a real product unchanged, **allocation harm** is easy to imagine: artists outside the favored tag set would almost never surface, and the scoring recipe would amplify whatever cultural assumptions were baked into the tags and weights. Users who do not fit a single genre-mood-energy description get a **flattened** version of their taste.
+That creates a **filter-bubble** feeling: you mostly see what the tags allow. **Genre is weighted above mood**, so listeners who care more about vibe than genre may still see genre-first results. **Numeric energy** can also feel “right” on paper but wrong in the ears, because closeness on a scale is not the same as emotional fit.
 
 ---
 
-## 7. Evaluation
+## 6. Evaluation process
 
-Checks included:
-
-- **Automated tests** in `tests/test_recommender.py` that verify the higher-scoring song for a pop / happy / high-energy profile is the expected track, and that explanations are non-empty strings.
-- **Manual CLI run** (`python -m src.main`) to confirm the pipeline loads the CSV, scores each row, sorts, and prints titles with reasons that match the stated demo preferences.
-
-No separate offline accuracy metric was used; the catalog is too small for meaningful statistical rates. Evaluation here is primarily **face validity** and **regression tests** on a couple of controlled examples.
+Evaluation mixed **automation** and **manual runs**. `pytest` checks a two-song toy case so the ranking logic does not silently regress. For the real catalog, **`python -m src.main`** ran **four taste profiles** (high-energy pop, chill lofi, intense rock, and a deliberately awkward edge case) and printed **top five** lists with **scores and reason bullets**. A **weight experiment** (double energy importance, half genre importance) was run on the same pop profile to see whether the order changed in an explainable way. Notes comparing profiles live in **`reflection.md`**.
 
 ---
 
-## 8. Future Work
+## 7. Intended use and non-intended use
 
-Reasonable next steps without turning this into a large product would include: **synonym or hierarchy handling** for genres, a **diversity penalty** so the top five are not almost the same vibe, optional **soft mood** matches, and a second tiny dataset or user study to discuss **fairness** with more than anecdotal examples.
+**Intended:** learning how **user fields → scores → ranked list** works, practicing documentation, and discussing **bias and transparency** in a controlled sandbox.
 
-If the scope were allowed to grow, hybrid signals (even a toy collaborative layer) and logging of skips or replays would illustrate how production systems close the loop.
+**Not intended:** real product recommendations, medical or mood “diagnosis,” fairness claims about artists or cultures, or use with private or large-scale user data. It should not be mistaken for Spotify-, YouTube-, or Apple-scale personalization.
 
 ---
 
-## 9. Personal Reflection
+## 8. Ideas for improvement
 
-Building a recommender from scratch—even a toy one—makes it obvious that **“the algorithm” is mostly choices**: which fields exist, how strongly genre outweighs mood, and what we pretend “energy” means for a person’s evening.
+1. **Softer matching** for genre and mood (synonyms, hierarchies, or partial credit) so rare combos do not collapse to a single loud default.  
+2. A **diversity rule** so the top five are not almost the same sub-genre when scores tie closely.  
+3. A **tiny feedback loop** (thumbs up/down) stored in a file to show how real systems update—still small, but closer to practice.
 
-It also sharpened the contrast between **transparent rules** and the opaque feeds people use daily. A real platform adds data volume, personalization, and business goals on top of similar bones. Human judgment still matters in deciding what belongs in the catalog, how labels are applied, and what outcomes we are willing to call success.
+---
+
+## 9. Personal reflection
+
+**Biggest learning moment:** seeing the **edge-case profile** return a plausible-but-wrong “mood” winner drove home that **missing data reads as preference** if you are not careful. The math was honest; the catalog was not complete for that ask.
+
+**AI tools:** they sped up **boilerplate** (CSV loading, sorting, wording drafts) and suggested **edge profiles** I might have skipped. I still had to **verify** weights against the README recipe, re-run the CLI after each change, and catch places where a suggestion would have **broken tests** or overstated what the CSV contains.
+
+**Surprise:** even a **handful of if-then-style rules** can produce an ordered list that **feels** like a recommendation feed, because humans also lean on shortcuts (“same genre, same mood”). The “magic” was mostly **transparent arithmetic**, which is both reassuring and a little deflating.
+
+**Next if I extended this:** I would prototype **one** soft-mood or synonym layer and measure whether the **moody pop** style edge case stops defaulting to **intense** gym pop without hurting the simple profiles that already work.
